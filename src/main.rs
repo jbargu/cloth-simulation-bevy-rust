@@ -12,6 +12,7 @@ pub fn main() -> Result<(), String> {
             node_size: 20.0,
             num_nodes_x: 3,
             num_nodes_y: 3,
+            g: 30.0,
             r: Vec3::new(40.0, 0.0, 0.0),
             k: Vec3::new(0.1, 0.5, 0.5),
             ..Default::default()
