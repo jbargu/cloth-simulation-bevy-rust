@@ -1,0 +1,16 @@
+[package]
+name = "cloth-simulation-rust-sdl"
+version = "0.1.0"
+authors = ["jbargu <jure.grabnar@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+bevy_ecs = "0.7.0"
+bevy = "0.7.0"
+
+[dependencies.sdl2]
+version = "0.34"
+default-features = false
+features = ["gfx"]
+
