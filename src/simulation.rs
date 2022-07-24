@@ -1,20 +1,12 @@
-use bevy::prelude::Vec3;
-use bevy_ecs::prelude::*;
+use bevy::{core::FixedTimestep, prelude::*};
 use std::collections::HashMap;
 
-mod edge;
-mod node;
+#[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
+struct FixedUpdateStage;
 
-#[derive(Default)]
-struct Delta(i16);
+const TIMESTEP: f64 = 0.2;
 
 struct Grid(Vec<Vec<Entity>>);
-
-#[derive(Component, Clone, Copy, Debug)]
-pub struct Position {
-    pub x: f32,
-    pub y: f32,
-}
 
 #[derive(Component)]
 pub struct PreviousPosition {
@@ -32,66 +24,83 @@ pub struct Index {
 pub struct Pinned;
 
 pub struct Simulation {
-    num_nodes_x: i16,
-    num_nodes_y: i16,
-    default_width_diff: f32,
-    default_height_diff: f32,
-    width: u32,
-    height: u32,
-    pub world: World,
-    schedule: Schedule,
+    pub params: Params,
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct Params {
+    pub node_size: f32,
+    pub num_nodes_x: i16,
+    pub num_nodes_y: i16,
+    pub r: Vec3, // rest lengths: structural, shear, flexion
+    pub k: Vec3, // spring coefficients: structural, shear, flexion
 }
 
 impl Simulation {
-    pub fn new(width: u32, height: u32) -> Simulation {
-        // ECS vars
-        let world = World::new();
-        let schedule = Schedule::default();
+    pub fn new(mut params: Params) -> Self {
+        params.r[1] = params.r[0] * (2.0 as f32).sqrt(); // diagonal shear spring
+        params.r[2] *= 2.0; // flexion spring, double the rest length
 
-        let mut sim = Simulation {
-            num_nodes_x: 20,
-            num_nodes_y: 10,
-            default_width_diff: 40f32,
-            default_height_diff: 40f32,
-            width,
-            height,
-            world,
-            schedule,
-        };
+        Simulation { params }
+    }
+}
+
+use bevy_prototype_lyon::prelude::*;
+impl Plugin for Simulation {
+    fn build(&self, app: &mut App) {
         let mut grid: Vec<Vec<Entity>> = Vec::new();
 
-        for k in 0..sim.num_nodes_y {
+        let shape = shapes::Circle {
+            radius: self.params.node_size,
+            ..shapes::Circle::default()
+        };
+
+        for k in 0..self.params.num_nodes_y {
             let mut vec: Vec<Entity> = Vec::new();
-            for i in 0..sim.num_nodes_x {
+
+            for i in 0..self.params.num_nodes_x {
                 let index = Index {
                     x: i as usize,
                     y: k as usize,
                 };
-                let pos = Position {
-                    x: 10.0 + i as f32 * sim.default_width_diff,
-                    y: 10.0 + k as f32 * sim.default_height_diff,
-                };
+                let pos = Transform::from_xyz(
+                    i as f32 * self.params.r[0],
+                    -(k as f32 * self.params.r[0]),
+                    0.0,
+                );
+
                 let prev_pos = PreviousPosition {
-                    x: 10.0 + i as f32 * sim.default_width_diff,
-                    y: 10.0 + k as f32 * sim.default_height_diff,
+                    x: i as f32 * self.params.r[0],
+                    y: -(k as f32 * self.params.r[0]),
                 };
                 let id;
+                let shape_bundle = GeometryBuilder::build_as(
+                    &shape,
+                    DrawMode::Outlined {
+                        fill_mode: FillMode::color(Color::WHITE),
+                        outline_mode: StrokeMode::new(Color::BLACK, 1.0),
+                    },
+                    pos,
+                );
+
                 if k == 0 {
-                    id = sim
+                    id = app
                         .world
                         .spawn()
                         .insert(index)
-                        .insert(pos)
+                        .insert_bundle(TransformBundle::from(pos))
                         .insert(prev_pos)
                         .insert(Pinned {})
+                        .insert_bundle(shape_bundle)
                         .id();
                 } else {
-                    id = sim
+                    id = app
                         .world
                         .spawn()
                         .insert(index)
-                        .insert(pos)
+                        .insert_bundle(TransformBundle::from(pos))
                         .insert(prev_pos)
+                        .insert_bundle(shape_bundle)
                         .id();
                 }
 
@@ -100,58 +109,70 @@ impl Simulation {
 
             grid.push(vec);
         }
-        sim.schedule
-            .add_stage("update", SystemStage::parallel().with_system(apply_gravity));
 
-        sim.world.insert_resource(Delta::default());
-        sim.world.insert_resource(Grid(grid));
+        // Add camera
+        app.world
+            .spawn()
+            .insert_bundle(OrthographicCameraBundle::new_2d());
 
-        sim
-    }
-
-    pub fn step(&mut self, delta: i16) {
-        let mut delta_resource = self.world.get_resource_mut::<Delta>().unwrap();
-        delta_resource.0 = delta;
-
-        self.schedule.run(&mut self.world);
+        app.insert_resource(self.params)
+            .insert_resource(Grid(grid))
+            .add_stage_after(
+                CoreStage::Update,
+                FixedUpdateStage,
+                SystemStage::parallel()
+                    .with_run_criteria(FixedTimestep::step(TIMESTEP))
+                    .with_system(apply_gravity),
+            );
     }
 }
 
 // This system applies gravity to Nodes without Pinned component
 fn apply_gravity(
-    delta: Res<Delta>,
+    params: Res<Params>,
     grid: Res<Grid>,
     mut set: ParamSet<(
-        Query<(&Index, &Position)>,
-        Query<(&Index, &mut Position, &mut PreviousPosition), Without<Pinned>>,
+        Query<(&Index, &Transform)>,
+        Query<(&Index, &mut Transform, &mut PreviousPosition), Without<Pinned>>,
     )>,
 ) {
-    let dt = delta.0 as f32;
+    let dt = TIMESTEP as f32;
 
-    let map: HashMap<Index, Position> = set
+    let map: HashMap<Index, Transform> = set
         .p0()
         .iter()
         .map(|(key, value)| return (*key, *value))
         .collect();
 
     for (ind, mut pos, mut prev_pos) in set.p1().iter_mut() {
-        println!("{:?}", map.get(ind));
-        //let vy = pos.y - prev_pos.y + dt.0 * 10;
-        let vy_curr = pos.y - prev_pos.y;
-        let vx_curr = pos.x - prev_pos.x;
+        //println!("{:?}", map.get(ind));
+        let vy = pos.translation.y - prev_pos.y;
+        let _vx = pos.translation.x - prev_pos.x;
 
         // Gravity force, F = m * a, assume m = 1
-        let mut f: Vec3 = Vec3::new(0.0, 10.0, 0.0);
+        let mut f: Vec3 = Vec3::new(0.0, -30.0, 0.0);
 
+        // Handle structural springs
+        if ind.y > 0 {
+            let p = map.get(ind).unwrap();
+            let q = map
+                .get(&Index {
+                    x: ind.x,
+                    y: ind.y - 1,
+                })
+                .unwrap();
+            f.y -= params.k[0] * (params.r[0] - (p.translation.y - q.translation.y).abs());
+            println!("{:?}, {:?}", p, f);
+        }
         f *= dt;
 
-        let next_y = pos.y + (vy_curr + f.y) * dt;
+        let next_y = pos.translation.y + (vy + f.y) * dt;
 
         // Update prev pos
-        prev_pos.y = pos.y;
+        prev_pos.y = pos.translation.y;
 
         // New pos
-        pos.y = next_y;
+        pos.translation.y = next_y;
 
         // Test
         //if ind.y == 1 {
