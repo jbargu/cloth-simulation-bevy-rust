@@ -1,5 +1,5 @@
 [package]
-name = "cloth-simulation-rust-sdl"
+name = "cloth-simulation-bevy-rust"
 version = "0.1.0"
 authors = ["jbargu <jure.grabnar@gmail.com>"]
 edition = "2021"
@@ -9,3 +9,10 @@ edition = "2021"
 bevy_ecs = "0.7.0"
 bevy = "0.7.0"
 bevy_prototype_lyon = "0.5.0"
+
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3

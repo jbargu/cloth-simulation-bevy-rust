@@ -933,7 +933,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cloth-simulation-rust-sdl"
+name = "cloth-simulation-bevy-rust"
 version = "0.1.0"
 dependencies = [
  "bevy",

@@ -10,8 +10,8 @@ pub fn main() -> Result<(), String> {
         .add_plugin(ShapePlugin)
         .add_plugin(Simulation::new(Params {
             node_size: 20.0,
-            num_nodes_x: 20,
-            num_nodes_y: 10,
+            num_nodes_x: 3,
+            num_nodes_y: 3,
             r: Vec3::new(40.0, 0.0, 0.0),
             k: Vec3::new(0.1, 0.5, 0.5),
             ..Default::default()

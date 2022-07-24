@@ -1,10 +1,10 @@
-use bevy::{core::FixedTimestep, prelude::*};
+use bevy::{core::FixedTimestep, input::keyboard::KeyboardInput, prelude::*};
 use std::collections::HashMap;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 struct FixedUpdateStage;
 
-const TIMESTEP: f64 = 0.2;
+const TIMESTEP: f64 = 0.1;
 
 struct Grid(Vec<Vec<Entity>>);
 
@@ -117,6 +117,7 @@ impl Plugin for Simulation {
 
         app.insert_resource(self.params)
             .insert_resource(Grid(grid))
+            .add_system(handle_keyboard_input)
             .add_stage_after(
                 CoreStage::Update,
                 FixedUpdateStage,
@@ -150,7 +151,7 @@ fn apply_gravity(
         let _vx = pos.translation.x - prev_pos.x;
 
         // Gravity force, F = m * a, assume m = 1
-        let mut f: Vec3 = Vec3::new(0.0, -30.0, 0.0);
+        let mut f: Vec3 = Vec3::new(0.0, -100.0, 0.0);
 
         // Handle structural springs
         if ind.y > 0 {
@@ -178,5 +179,25 @@ fn apply_gravity(
         //if ind.y == 1 {
         //pos.y -= map.get(ind).unwrap().y;
         //}
+    }
+}
+
+fn handle_keyboard_input(
+    keys: Res<Input<KeyCode>>,
+    params: Res<Params>,
+    mut query: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
+) {
+    // Reset position of nodes
+    if keys.just_released(KeyCode::R) {
+        for (index, mut pos, mut prev_pos) in query.iter_mut() {
+            pos.translation = Vec3::new(
+                index.x as f32 * params.r[0],
+                -(index.y as f32 * params.r[0]),
+                0.0,
+            );
+
+            prev_pos.x = index.x as f32 * params.r[0];
+            prev_pos.y = -(index.y as f32 * params.r[0]);
+        }
     }
 }
