@@ -164,7 +164,7 @@ fn ui_example(
             if ui
                 .add(
                     egui::Slider::new(&mut params.r[0], 10.0..=100.0)
-                        .text("structural rest length"),
+                        .text("Structural rest length"),
                 )
                 .drag_released()
             {
@@ -172,10 +172,15 @@ fn ui_example(
                 params.calc_rest_lengths(rest_length);
             }
 
-            ui.label(format!("Shear spring rest length: {}", params.r[1]));
-            ui.label(format!("Flexion spring rest length: {}", params.r[2]));
+            ui.label(format!("Shear rest length: {}", params.r[1]));
+            ui.label(format!("Flexion rest length: {}", params.r[2]));
 
             ui.separator();
+            ui.heading("Spring coefficients");
+
+            ui.add(egui::Slider::new(&mut params.k[0], 1.0..=20.0).text("Structural k"));
+            ui.add(egui::Slider::new(&mut params.k[1], 1.0..=20.0).text("Shear k"));
+            ui.add(egui::Slider::new(&mut params.k[2], 1.0..=20.0).text("Flexion k"));
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.add(egui::Hyperlink::from_label_and_url(
@@ -220,7 +225,7 @@ fn apply_gravity(
                     y: ind.y - 1,
                 })
                 .unwrap();
-            f.y -= params.k[0] * (params.r[0] - (p.translation.y - q.translation.y).abs());
+            f.y += params.k[0] * (params.r[0] - (p.translation.y - q.translation.y).abs());
             println!("{:?}, {:?}", p, f);
         }
         f *= dt;
