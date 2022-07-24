@@ -127,7 +127,7 @@ impl Plugin for Simulation {
         app.insert_resource(self.params)
             .insert_resource(Grid(grid))
             .add_plugin(EguiPlugin)
-            .add_system(ui_example)
+            .add_system(ui_side_panel)
             .add_system(handle_keyboard_input)
             .add_stage_after(
                 CoreStage::Update,
@@ -139,14 +139,11 @@ impl Plugin for Simulation {
     }
 }
 
-fn ui_example(
+fn ui_side_panel(
     mut egui_ctx: ResMut<EguiContext>,
     mut params: ResMut<Params>,
     query: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
 ) {
-    //egui::Window::new("Hello").show(egui_context.ctx_mut(), |ui| {
-    //ui.label("world");
-    //});
     egui::SidePanel::left("side_panel")
         .default_width(300.0)
         .show(egui_ctx.ctx_mut(), |ui| {
@@ -211,7 +208,7 @@ fn apply_gravity(
     for (ind, mut pos, mut prev_pos) in set.p1().iter_mut() {
         //println!("{:?}", map.get(ind));
         let vy = pos.translation.y - prev_pos.y;
-        let _vx = pos.translation.x - prev_pos.x;
+        let vx = pos.translation.x - prev_pos.x;
 
         // Gravity force, F = m * a, assume m = 1
         let mut f: Vec3 = Vec3::new(0.0, -params.g, 0.0);
@@ -225,18 +222,22 @@ fn apply_gravity(
                     y: ind.y - 1,
                 })
                 .unwrap();
-            f.y += params.k[0] * (params.r[0] - (p.translation.y - q.translation.y).abs());
+            let len = (p.translation - q.translation).length();
+            f += params.k[0] * (params.r[0] - len) * (p.translation - q.translation) / len;
             println!("{:?}, {:?}", p, f);
         }
         f *= dt;
 
         let next_y = pos.translation.y + (vy + f.y) * dt;
+        let next_x = pos.translation.x + (vx + f.x) * dt;
 
         // Update prev pos
         prev_pos.y = pos.translation.y;
+        prev_pos.x = pos.translation.x;
 
         // New pos
         pos.translation.y = next_y;
+        pos.translation.x = next_x;
 
         // Test
         //if ind.y == 1 {
