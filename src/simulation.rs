@@ -1,11 +1,12 @@
-use bevy::{core::FixedTimestep, input::keyboard::KeyboardInput, prelude::*};
+use bevy::{core::FixedTimestep, prelude::*};
 use bevy_egui::{egui, EguiContext, EguiPlugin};
+use bevy_prototype_lyon::prelude::*;
 use std::collections::HashMap;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 struct FixedUpdateStage;
 
-const TIMESTEP: f64 = 0.1;
+const TIMESTEP: f64 = 0.01;
 
 struct Grid(Vec<Vec<Entity>>);
 
@@ -19,7 +20,7 @@ pub struct Force(Vec3);
 pub struct Mass(f32);
 
 #[derive(Component)]
-pub struct Link {
+pub struct Edge {
     a: Entity,
     b: Entity,
 }
@@ -40,8 +41,8 @@ pub struct Simulation {
 #[derive(Default, Clone, Copy)]
 pub struct Params {
     pub node_size: f32,
-    pub num_nodes_x: i16,
-    pub num_nodes_y: i16,
+    pub num_nodes_x: usize,
+    pub num_nodes_y: usize,
     pub m: f32,  // default mass of the node
     pub g: f32,  // gravity constant
     pub r: Vec3, // rest lengths: structural, shear, flexion
@@ -64,7 +65,6 @@ impl Simulation {
     }
 }
 
-use bevy_prototype_lyon::prelude::*;
 impl Plugin for Simulation {
     fn build(&self, app: &mut App) {
         let mut grid: Vec<Vec<Entity>> = Vec::new();
@@ -74,6 +74,7 @@ impl Plugin for Simulation {
             ..shapes::Circle::default()
         };
 
+        // Create nodes
         for k in 0..self.params.num_nodes_y {
             let mut vec: Vec<Entity> = Vec::new();
 
@@ -136,6 +137,45 @@ impl Plugin for Simulation {
             grid.push(vec);
         }
 
+        // Create edges
+        for k in 0..self.params.num_nodes_y {
+            for i in 0..self.params.num_nodes_x {
+                // Add top edge
+                if k > 0 {
+                    let line = shapes::Line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0));
+
+                    app.world
+                        .spawn()
+                        .insert(Edge {
+                            a: grid[k - 1][i],
+                            b: grid[k][i],
+                        })
+                        .insert_bundle(GeometryBuilder::build_as(
+                            &line,
+                            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 1.0)),
+                            Transform::default(),
+                        ));
+                }
+
+                // Add left edge
+                if i > 0 {
+                    let line = shapes::Line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0));
+
+                    app.world
+                        .spawn()
+                        .insert(Edge {
+                            a: grid[k][i - 1],
+                            b: grid[k][i],
+                        })
+                        .insert_bundle(GeometryBuilder::build_as(
+                            &line,
+                            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 1.0)),
+                            Transform::default(),
+                        ));
+                }
+            }
+        }
+
         // Add camera
         app.world
             .spawn()
@@ -152,8 +192,31 @@ impl Plugin for Simulation {
                 SystemStage::parallel()
                     .with_run_criteria(FixedTimestep::step(TIMESTEP))
                     .with_system(apply_gravity)
-                    .with_system(update_nodes),
+                    .with_system(update_nodes)
+                    .with_system(render_edges),
             );
+    }
+}
+
+fn render_edges(
+    mut set: ParamSet<(
+        Query<(&mut Path, &Edge)>,
+        Query<(Entity, &Transform), With<Index>>,
+    )>,
+) {
+    let map: HashMap<Entity, Transform> = set
+        .p1()
+        .iter()
+        .map(|(key, value)| return (key, *value))
+        .collect();
+
+    for (mut path, edge) in set.p0().iter_mut() {
+        if let Some(a_pos) = map.get(&edge.a) {
+            if let Some(b_pos) = map.get(&edge.b) {
+                let line = shapes::Line(a_pos.translation.truncate(), b_pos.translation.truncate());
+                *path = ShapePath::build_as(&line);
+            }
+        }
     }
 }
 
@@ -171,7 +234,7 @@ fn ui_side_panel(
                 reset_nodes_position(&params, query);
             }
 
-            ui.add(egui::Slider::new(&mut params.g, 0.0..=500.0).text("gravity"));
+            ui.add(egui::Slider::new(&mut params.g, 0.0..=5000.0).text("gravity"));
 
             ui.separator();
             ui.heading("Rest lengths");
