@@ -10,9 +10,18 @@ const TIMESTEP: f64 = 0.1;
 struct Grid(Vec<Vec<Entity>>);
 
 #[derive(Component)]
-pub struct PreviousPosition {
-    x: f32,
-    y: f32,
+pub struct PreviousPosition(Vec3);
+
+#[derive(Component)]
+pub struct Force(Vec3);
+
+#[derive(Component)]
+pub struct Mass(f32);
+
+#[derive(Component)]
+pub struct Link {
+    a: Entity,
+    b: Entity,
 }
 
 #[derive(Component, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
@@ -33,6 +42,7 @@ pub struct Params {
     pub node_size: f32,
     pub num_nodes_x: i16,
     pub num_nodes_y: i16,
+    pub m: f32,  // default mass of the node
     pub g: f32,  // gravity constant
     pub r: Vec3, // rest lengths: structural, shear, flexion
     pub k: Vec3, // spring coefficients: structural, shear, flexion
@@ -78,11 +88,11 @@ impl Plugin for Simulation {
                     0.0,
                 );
 
-                let prev_pos = PreviousPosition {
-                    x: i as f32 * self.params.r[0],
-                    y: -(k as f32 * self.params.r[0]),
-                };
-                let id;
+                let prev_pos = PreviousPosition(Vec3::new(
+                    i as f32 * self.params.r[0],
+                    -(k as f32 * self.params.r[0]),
+                    0.0,
+                ));
                 let shape_bundle = GeometryBuilder::build_as(
                     &shape,
                     DrawMode::Outlined {
@@ -91,7 +101,10 @@ impl Plugin for Simulation {
                     },
                     pos,
                 );
+                let mass = Mass(self.params.m);
+                let force = Force(Vec3::default());
 
+                let id;
                 if k == 0 {
                     id = app
                         .world
@@ -99,6 +112,8 @@ impl Plugin for Simulation {
                         .insert(index)
                         .insert_bundle(TransformBundle::from(pos))
                         .insert(prev_pos)
+                        .insert(mass)
+                        .insert(force)
                         .insert(Pinned {})
                         .insert_bundle(shape_bundle)
                         .id();
@@ -109,6 +124,8 @@ impl Plugin for Simulation {
                         .insert(index)
                         .insert_bundle(TransformBundle::from(pos))
                         .insert(prev_pos)
+                        .insert(mass)
+                        .insert(force)
                         .insert_bundle(shape_bundle)
                         .id();
                 }
@@ -134,7 +151,8 @@ impl Plugin for Simulation {
                 FixedUpdateStage,
                 SystemStage::parallel()
                     .with_run_criteria(FixedTimestep::step(TIMESTEP))
-                    .with_system(apply_gravity),
+                    .with_system(apply_gravity)
+                    .with_system(update_nodes),
             );
     }
 }
@@ -189,12 +207,28 @@ fn ui_side_panel(
 }
 
 // This system applies gravity to Nodes without Pinned component
-fn apply_gravity(
+fn apply_gravity(params: Res<Params>, mut query: Query<&mut Force, Without<Pinned>>) {
+    for mut force in query.iter_mut() {
+        force.0 = Vec3::new(0.0, -params.g, 0.0);
+    }
+}
+
+// Calculates new node position based on Force component
+fn update_nodes(
     params: Res<Params>,
     grid: Res<Grid>,
     mut set: ParamSet<(
         Query<(&Index, &Transform)>,
-        Query<(&Index, &mut Transform, &mut PreviousPosition), Without<Pinned>>,
+        Query<
+            (
+                &Index,
+                &mut Transform,
+                &mut PreviousPosition,
+                &mut Force,
+                &mut Mass,
+            ),
+            Without<Pinned>,
+        >,
     )>,
 ) {
     let dt = TIMESTEP as f32;
@@ -205,44 +239,42 @@ fn apply_gravity(
         .map(|(key, value)| return (*key, *value))
         .collect();
 
-    for (ind, mut pos, mut prev_pos) in set.p1().iter_mut() {
+    for (ind, mut pos, mut prev_pos, mut force, mass) in set.p1().iter_mut() {
         //println!("{:?}", map.get(ind));
-        let vy = pos.translation.y - prev_pos.y;
-        let vx = pos.translation.x - prev_pos.x;
+        //let vy = pos.translation.y - prev_pos.y;
+        //let vx = pos.translation.x - prev_pos.x;
 
-        // Gravity force, F = m * a, assume m = 1
-        let mut f: Vec3 = Vec3::new(0.0, -params.g, 0.0);
+        let v = pos.translation - prev_pos.0;
 
         // Handle structural springs
-        if ind.y > 0 {
-            let p = map.get(ind).unwrap();
-            let q = map
-                .get(&Index {
-                    x: ind.x,
-                    y: ind.y - 1,
-                })
-                .unwrap();
-            let len = (p.translation - q.translation).length();
-            f += params.k[0] * (params.r[0] - len) * (p.translation - q.translation) / len;
-            println!("{:?}, {:?}", p, f);
-        }
-        f *= dt;
+        //if ind.y > 0 {
+        //let p = map.get(ind).unwrap();
+        //let q = map
+        //.get(&Index {
+        //x: ind.x,
+        //y: ind.y - 1,
+        //})
+        //.unwrap();
+        //let len = (p.translation - q.translation).length();
+        //f += params.k[0] * (params.r[0] - len) * (p.translation - q.translation) / len;
+        //println!("{:?}, {:?}", p, f);
+        //}
+        //f *= dt;
+        //
+        let v = v + (force.0 / mass.0) * dt;
 
-        let next_y = pos.translation.y + (vy + f.y) * dt;
-        let next_x = pos.translation.x + (vx + f.x) * dt;
+        let new_pos = pos.translation + v * dt;
+        //let next_y = pos.translation.y + (vy + f.y) * dt;
+        //let next_x = pos.translation.x + (vx + f.x) * dt;
 
         // Update prev pos
-        prev_pos.y = pos.translation.y;
-        prev_pos.x = pos.translation.x;
+        //prev_pos.y = pos.translation.y;
+        //prev_pos.x = pos.translation.x;
+
+        prev_pos.0 = pos.translation;
 
         // New pos
-        pos.translation.y = next_y;
-        pos.translation.x = next_x;
-
-        // Test
-        //if ind.y == 1 {
-        //pos.y -= map.get(ind).unwrap().y;
-        //}
+        pos.translation = new_pos;
     }
 }
 
@@ -269,7 +301,6 @@ fn reset_nodes_position(
             0.0,
         );
 
-        prev_pos.x = index.x as f32 * params.r[0];
-        prev_pos.y = -(index.y as f32 * params.r[0]);
+        prev_pos.0 = pos.translation.clone();
     }
 }
