@@ -10,12 +10,13 @@ pub fn main() -> Result<(), String> {
         .add_plugin(ShapePlugin)
         .add_plugin(Simulation::new(Params {
             node_size: 10.0,
-            num_nodes_x: 1,
-            num_nodes_y: 2,
+            num_nodes_x: 50,
+            num_nodes_y: 50,
             m: 1.0,
-            g: 100.0,
+            g: 30.0,
             r: Vec3::new(40.0, 0.0, 0.0),
-            k: Vec3::new(7.0, 1.0, 1.0),
+            k: Vec3::new(15.0, 1.0, 1.0),
+            enable_wind: true,
             ..Default::default()
         }))
         .add_system(bevy::input::system::exit_on_esc_system)

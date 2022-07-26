@@ -1,7 +1,10 @@
+use bevy::ecs::schedule::ShouldRun;
 use bevy::{core::FixedTimestep, prelude::*};
 use bevy_egui::{egui, EguiContext, EguiPlugin};
 use bevy_prototype_lyon::prelude::*;
 use std::collections::HashMap;
+
+mod util;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 struct FixedUpdateStage;
@@ -39,6 +42,11 @@ pub struct Simulation {
     pub params: Params,
 }
 
+#[derive(Component)]
+pub struct WindWave {
+    rect: Rect<f32>,
+}
+
 #[derive(Default, Clone, Copy)]
 pub struct Params {
     pub node_size: f32,
@@ -48,6 +56,7 @@ pub struct Params {
     pub g: f32,  // gravity constant
     pub r: Vec3, // rest lengths: structural, shear, flexion
     pub k: Vec3, // spring coefficients: structural, shear, flexion
+    pub enable_wind: bool,
 }
 
 impl Params {
@@ -95,7 +104,7 @@ impl Plugin for Simulation {
                     -(k as f32 * self.params.r[0]),
                     0.0,
                 ));
-                let shape_bundle = GeometryBuilder::build_as(
+                let _shape_bundle = GeometryBuilder::build_as(
                     &shape,
                     DrawMode::Outlined {
                         fill_mode: FillMode::color(Color::WHITE),
@@ -117,7 +126,7 @@ impl Plugin for Simulation {
                         .insert(mass)
                         .insert(force)
                         .insert(Pinned {})
-                        .insert_bundle(shape_bundle)
+                        //.insert_bundle(shape_bundle)
                         .id();
                 } else {
                     id = app
@@ -128,7 +137,7 @@ impl Plugin for Simulation {
                         .insert(prev_pos)
                         .insert(mass)
                         .insert(force)
-                        .insert_bundle(shape_bundle)
+                        //.insert_bundle(shape_bundle)
                         .id();
                 }
 
@@ -170,7 +179,7 @@ impl Plugin for Simulation {
                         })
                         .insert_bundle(GeometryBuilder::build_as(
                             &line,
-                            DrawMode::Stroke(StrokeMode::new(Color::YELLOW, 1.0)),
+                            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 1.0)),
                             Transform::default(),
                         ));
                 }
@@ -183,20 +192,58 @@ impl Plugin for Simulation {
 
         app.insert_resource(self.params)
             .insert_resource(Grid(grid))
+            .add_startup_system(setup_wind)
             .add_plugin(EguiPlugin)
             .add_system(ui_side_panel)
             .add_system(handle_keyboard_input)
+            .add_system(render_edges)
             .add_stage_after(
                 CoreStage::Update,
                 FixedUpdateStage,
                 SystemStage::parallel()
                     .with_run_criteria(FixedTimestep::step(TIMESTEP))
-                    .with_system(apply_gravity)
-                    .with_system(apply_spring_forces)
-                    .with_system(update_nodes)
-                    .with_system(render_edges),
+                    .with_system(apply_gravity.label("apply_gravity"))
+                    .with_system_set(
+                        SystemSet::new()
+                            .with_run_criteria(run_if_wind_enabled)
+                            .with_system(apply_wind)
+                            .after("apply_gravity")
+                            .label("apply_wind"),
+                    )
+                    .with_system(
+                        apply_spring_forces
+                            .after("apply_wind")
+                            .label("apply_spring_forces"),
+                    )
+                    .with_system(update_nodes.after("apply_spring_forces")),
             );
     }
+}
+
+fn run_if_wind_enabled(params: Res<Params>) -> ShouldRun {
+    if params.enable_wind {
+        ShouldRun::Yes
+    } else {
+        ShouldRun::No
+    }
+}
+
+fn setup_wind(mut commands: Commands, windows: Res<Windows>) {
+    let window = util::get_primary_window_size(&windows);
+
+    println!("window size: {}", window);
+
+    commands
+        .spawn()
+        .insert(WindWave {
+            rect: Rect {
+                top: 0.0,
+                left: 0.0,
+                right: window.x,
+                bottom: -1000.0,
+            },
+        })
+        .insert(Force(Vec3::new(20.0, 0.0, 0.0)));
 }
 
 fn render_edges(
@@ -261,6 +308,10 @@ fn ui_side_panel(
             ui.add(egui::Slider::new(&mut params.k[1], 1.0..=20.0).text("Shear k"));
             ui.add(egui::Slider::new(&mut params.k[2], 1.0..=20.0).text("Flexion k"));
 
+            ui.separator();
+            ui.heading("Wind");
+            ui.checkbox(&mut params.enable_wind, "Enable wind");
+
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.add(egui::Hyperlink::from_label_and_url(
                     "created by jbargu",
@@ -274,6 +325,43 @@ fn ui_side_panel(
 fn apply_gravity(params: Res<Params>, mut query: Query<(&mut Force, &Mass), Without<Pinned>>) {
     for (mut force, mass) in query.iter_mut() {
         force.0 = Vec3::new(0.0, -params.g, 0.0) * mass.0;
+    }
+}
+
+fn apply_wind(
+    windows: Res<Windows>,
+    mut wind_waves: Query<(&mut WindWave, &mut Force), Without<Index>>,
+    mut nodes: Query<(&Transform, &mut Force), With<Index>>,
+) {
+    let dt = TIMESTEP as f32;
+
+    let window = util::get_primary_window_size(&windows);
+    for (mut wave, wave_force) in wind_waves.iter_mut() {
+        wave.rect.left += wave_force.0.x * dt;
+        wave.rect.right += wave_force.0.x * dt;
+
+        if wave.rect.left >= window.x {
+            wave.rect.left -= window.x;
+            wave.rect.right -= window.x;
+        }
+
+        wave.rect.top += wave_force.0.y * dt;
+        wave.rect.bottom += wave_force.0.y * dt;
+
+        if wave.rect.top >= window.y {
+            wave.rect.top += window.y;
+            wave.rect.bottom += window.y;
+        }
+
+        for (pos, mut node_force) in nodes.iter_mut() {
+            if pos.translation.x >= wave.rect.left
+                && pos.translation.x <= wave.rect.right
+                && pos.translation.y >= wave.rect.bottom
+                && pos.translation.y <= wave.rect.top
+            {
+                node_force.0 += wave_force.0;
+            }
+        }
     }
 }
 
