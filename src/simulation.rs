@@ -6,8 +6,9 @@ use std::collections::HashMap;
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 struct FixedUpdateStage;
 
-const TIMESTEP: f64 = 0.01;
+const TIMESTEP: f64 = 0.1;
 
+/// Array containing all nodes, addressable by inded
 struct Grid(Vec<Vec<Entity>>);
 
 #[derive(Component)]
@@ -169,7 +170,7 @@ impl Plugin for Simulation {
                         })
                         .insert_bundle(GeometryBuilder::build_as(
                             &line,
-                            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 1.0)),
+                            DrawMode::Stroke(StrokeMode::new(Color::YELLOW, 1.0)),
                             Transform::default(),
                         ));
                 }
@@ -177,9 +178,8 @@ impl Plugin for Simulation {
         }
 
         // Add camera
-        app.world
-            .spawn()
-            .insert_bundle(OrthographicCameraBundle::new_2d());
+        let camera_bundle = OrthographicCameraBundle::new_2d();
+        app.world.spawn().insert_bundle(camera_bundle);
 
         app.insert_resource(self.params)
             .insert_resource(Grid(grid))
@@ -192,6 +192,7 @@ impl Plugin for Simulation {
                 SystemStage::parallel()
                     .with_run_criteria(FixedTimestep::step(TIMESTEP))
                     .with_system(apply_gravity)
+                    .with_system(apply_spring_forces)
                     .with_system(update_nodes)
                     .with_system(render_edges),
             );
@@ -234,7 +235,7 @@ fn ui_side_panel(
                 reset_nodes_position(&params, query);
             }
 
-            ui.add(egui::Slider::new(&mut params.g, 0.0..=5000.0).text("gravity"));
+            ui.add(egui::Slider::new(&mut params.g, 0.0..=20000.0).text("gravity"));
 
             ui.separator();
             ui.heading("Rest lengths");
@@ -270,70 +271,61 @@ fn ui_side_panel(
 }
 
 // This system applies gravity to Nodes without Pinned component
-fn apply_gravity(params: Res<Params>, mut query: Query<&mut Force, Without<Pinned>>) {
-    for mut force in query.iter_mut() {
-        force.0 = Vec3::new(0.0, -params.g, 0.0);
+fn apply_gravity(params: Res<Params>, mut query: Query<(&mut Force, &Mass), Without<Pinned>>) {
+    for (mut force, mass) in query.iter_mut() {
+        force.0 = Vec3::new(0.0, -params.g, 0.0) * mass.0;
+    }
+}
+
+fn apply_spring_forces(
+    params: Res<Params>,
+    mut set: ParamSet<(
+        Query<&Edge>,
+        Query<(&mut Transform, &mut Force, &Mass), With<Index>>,
+    )>,
+) {
+    let edges: Vec<(Entity, Entity)> = set.p0().iter().map(|edge| (edge.a, edge.b)).collect();
+    let mut nodes = set.p1();
+
+    for (i, (ent_a, ent_b)) in edges.iter().enumerate() {
+        let [(a_pos, mut a_force, a_mass), (b_pos, mut b_force, b_mass)] =
+            nodes.many_mut([*ent_a, *ent_b]);
+
+        let len = (a_pos.translation - b_pos.translation).length();
+        let f = params.k[0] * -(params.r[0] - len) / (a_mass.0 + b_mass.0)
+            * ((a_pos.translation - b_pos.translation) / len);
+
+        a_force.0 -= f;
+        b_force.0 += f;
+
+        if i == 0 {
+            //println!(
+            //"{}, {}, {}, a_force: {}, {}, b_force: {}",
+            //f, len, a_pos.translation, a_force.0, b_pos.translation, b_force.0
+            //);
+
+            println!(
+                "trans: {}, b_force: {}, force: {}, len: {}",
+                b_pos.translation, b_force.0, f, len
+            );
+        }
     }
 }
 
 // Calculates new node position based on Force component
 fn update_nodes(
-    params: Res<Params>,
-    grid: Res<Grid>,
     mut set: ParamSet<(
         Query<(&Index, &Transform)>,
-        Query<
-            (
-                &Index,
-                &mut Transform,
-                &mut PreviousPosition,
-                &mut Force,
-                &mut Mass,
-            ),
-            Without<Pinned>,
-        >,
+        Query<(&mut Transform, &mut PreviousPosition, &mut Force, &mut Mass), Without<Pinned>>,
     )>,
 ) {
     let dt = TIMESTEP as f32;
 
-    let map: HashMap<Index, Transform> = set
-        .p0()
-        .iter()
-        .map(|(key, value)| return (*key, *value))
-        .collect();
-
-    for (ind, mut pos, mut prev_pos, mut force, mass) in set.p1().iter_mut() {
-        //println!("{:?}", map.get(ind));
-        //let vy = pos.translation.y - prev_pos.y;
-        //let vx = pos.translation.x - prev_pos.x;
-
-        let v = pos.translation - prev_pos.0;
-
-        // Handle structural springs
-        //if ind.y > 0 {
-        //let p = map.get(ind).unwrap();
-        //let q = map
-        //.get(&Index {
-        //x: ind.x,
-        //y: ind.y - 1,
-        //})
-        //.unwrap();
-        //let len = (p.translation - q.translation).length();
-        //f += params.k[0] * (params.r[0] - len) * (p.translation - q.translation) / len;
-        //println!("{:?}, {:?}", p, f);
-        //}
-        //f *= dt;
-        //
+    for (mut pos, mut prev_pos, force, mass) in set.p1().iter_mut() {
+        let v = (pos.translation - prev_pos.0) / dt;
         let v = v + (force.0 / mass.0) * dt;
 
         let new_pos = pos.translation + v * dt;
-        //let next_y = pos.translation.y + (vy + f.y) * dt;
-        //let next_x = pos.translation.x + (vx + f.x) * dt;
-
-        // Update prev pos
-        //prev_pos.y = pos.translation.y;
-        //prev_pos.x = pos.translation.x;
-
         prev_pos.0 = pos.translation;
 
         // New pos
