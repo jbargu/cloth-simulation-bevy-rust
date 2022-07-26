@@ -279,17 +279,12 @@ fn apply_gravity(params: Res<Params>, mut query: Query<(&mut Force, &Mass), With
 
 fn apply_spring_forces(
     params: Res<Params>,
-    mut set: ParamSet<(
-        Query<&Edge>,
-        Query<(&mut Transform, &mut Force, &Mass), With<Index>>,
-    )>,
+    edges: Query<&Edge>,
+    mut nodes: Query<(&mut Transform, &mut Force, &Mass), With<Index>>,
 ) {
-    let edges: Vec<(Entity, Entity)> = set.p0().iter().map(|edge| (edge.a, edge.b)).collect();
-    let mut nodes = set.p1();
-
-    for (i, (ent_a, ent_b)) in edges.iter().enumerate() {
+    for (i, edge) in edges.iter().enumerate() {
         let [(a_pos, mut a_force, a_mass), (b_pos, mut b_force, b_mass)] =
-            nodes.many_mut([*ent_a, *ent_b]);
+            nodes.many_mut([edge.a, edge.b]);
 
         let len = (a_pos.translation - b_pos.translation).length();
         let f = params.k[0] * -(params.r[0] - len) / (a_mass.0 + b_mass.0)
@@ -298,7 +293,7 @@ fn apply_spring_forces(
         a_force.0 -= f;
         b_force.0 += f;
 
-        if i == 0 {
+        if i == 1 {
             //println!(
             //"{}, {}, {}, a_force: {}, {}, b_force: {}",
             //f, len, a_pos.translation, a_force.0, b_pos.translation, b_force.0
