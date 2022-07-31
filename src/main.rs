@@ -12,11 +12,11 @@ pub fn main() -> Result<(), String> {
             node_size: 10.0,
             num_nodes_x: 40,
             num_nodes_y: 40,
-            dt: 0.1,
+            dt: 0.025,
             m: 1.0,
-            g: 98.0,
+            g: 1000.0,
             r: Vec3::new(20.0, 0.0, 0.0),
-            k: Vec3::new(1.0, 1.0, 1.0),
+            k: Vec3::new(1500.0, 1.0, 1.0),
             enable_wind: false,
             ..Default::default()
         }))

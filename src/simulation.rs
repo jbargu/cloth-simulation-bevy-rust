@@ -108,7 +108,7 @@ impl Plugin for Simulation {
                         .insert(mass)
                         .insert(force)
                         .insert(Pinned {})
-                        //.insert_bundle(shape_bundle)
+                        //.insert_bundle(_shape_bundle)
                         .id();
                 } else {
                     id = app
@@ -119,7 +119,7 @@ impl Plugin for Simulation {
                         .insert(prev_pos)
                         .insert(mass)
                         .insert(force)
-                        //.insert_bundle(shape_bundle)
+                        //.insert_bundle(_shape_bundle)
                         .id();
                 }
 
@@ -181,7 +181,6 @@ impl Plugin for Simulation {
             .add_plugin(EguiPlugin)
             .add_system(ui_side_panel)
             .add_system(handle_keyboard_input)
-            //.add_system(render_edges)
             .add_stage_after(
                 CoreStage::Update,
                 FixedUpdateStage,
@@ -224,7 +223,7 @@ fn setup_wind(mut commands: Commands, windows: Res<Windows>) {
                 bottom: -1000.0,
             },
         })
-        .insert(Force(Vec3::new(20.0, 0.0, 0.0)));
+        .insert(Force(Vec3::new(200.0, 0.0, 0.0)));
 }
 
 fn render_edges(
@@ -285,7 +284,7 @@ fn ui_side_panel(
             ui.separator();
             ui.heading("Spring coefficients");
 
-            ui.add(egui::Slider::new(&mut params.k[0], 1.0..=500.0).text("Structural k"));
+            ui.add(egui::Slider::new(&mut params.k[0], 1.0..=5000.0).text("Structural k"));
             ui.add(egui::Slider::new(&mut params.k[1], 1.0..=20.0).text("Shear k"));
             ui.add(egui::Slider::new(&mut params.k[2], 1.0..=20.0).text("Flexion k"));
 
@@ -372,7 +371,7 @@ fn handle_mouse_interaction(
     q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut nodes: Query<(&Transform, &mut Force), (With<Index>, Without<Pinned>)>,
 ) {
-    if buttons.just_released(MouseButton::Left) {
+    if buttons.pressed(MouseButton::Left) {
         // get the camera info and transform
         // assuming there is exactly one main camera entity, so query::single() is OK
         let (camera, camera_transform) = q_camera.single();
@@ -406,7 +405,7 @@ fn handle_mouse_interaction(
                 if pos.translation.truncate().distance(world_pos) < 150.0 {
                     force.0 += Vec3::new(8000.0, 0.0, 0.0);
 
-                    println!("{}", pos.translation.truncate().distance(world_pos));
+                    //println!("{}", pos.translation.truncate().distance(world_pos));
                 }
             }
 

@@ -39,7 +39,7 @@ pub fn physics_update(
         With<Index>,
     >,
 ) {
-    let num_steps = 10;
+    let num_steps = 5;
     let step_dt = params.dt / num_steps as f32;
 
     for _ in 0..num_steps {
@@ -47,7 +47,7 @@ pub fn physics_update(
 
         update_nodes(step_dt, &mut nodes);
 
-        for _ in 0..5 {
+        for _ in 0..3 {
             apply_spring_forces(step_dt, &params, &edges, &mut nodes);
         }
     }
