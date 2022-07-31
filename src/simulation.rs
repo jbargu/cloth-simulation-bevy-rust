@@ -1,42 +1,23 @@
 use bevy::ecs::schedule::ShouldRun;
+use bevy::render::camera::RenderTarget;
 use bevy::{core::FixedTimestep, prelude::*};
 use bevy_egui::{egui, EguiContext, EguiPlugin};
 use bevy_prototype_lyon::prelude::*;
 use std::collections::HashMap;
 
+mod physics;
 mod util;
+
+use physics::{physics_update, Edge, Force, Index, Mass, Pinned, PreviousPosition};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 struct FixedUpdateStage;
-
-const TIMESTEP: f64 = 0.1;
 
 /// Array containing all nodes, addressable by inded
 struct Grid(Vec<Vec<Entity>>);
 
 #[derive(Component)]
-pub struct PreviousPosition(Vec3);
-
-#[derive(Component)]
-pub struct Force(Vec3);
-
-#[derive(Component)]
-pub struct Mass(f32);
-
-#[derive(Component)]
-pub struct Edge {
-    a: Entity,
-    b: Entity,
-}
-
-#[derive(Component, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub struct Index {
-    pub x: usize,
-    pub y: usize,
-}
-
-#[derive(Component)]
-pub struct Pinned;
+struct MainCamera;
 
 pub struct Simulation {
     pub params: Params,
@@ -52,6 +33,7 @@ pub struct Params {
     pub node_size: f32,
     pub num_nodes_x: usize,
     pub num_nodes_y: usize,
+    pub dt: f32,
     pub m: f32,  // default mass of the node
     pub g: f32,  // gravity constant
     pub r: Vec3, // rest lengths: structural, shear, flexion
@@ -188,7 +170,10 @@ impl Plugin for Simulation {
 
         // Add camera
         let camera_bundle = OrthographicCameraBundle::new_2d();
-        app.world.spawn().insert_bundle(camera_bundle);
+        app.world
+            .spawn()
+            .insert_bundle(camera_bundle)
+            .insert(MainCamera);
 
         app.insert_resource(self.params)
             .insert_resource(Grid(grid))
@@ -196,26 +181,22 @@ impl Plugin for Simulation {
             .add_plugin(EguiPlugin)
             .add_system(ui_side_panel)
             .add_system(handle_keyboard_input)
-            .add_system(render_edges)
+            //.add_system(render_edges)
             .add_stage_after(
                 CoreStage::Update,
                 FixedUpdateStage,
                 SystemStage::parallel()
-                    .with_run_criteria(FixedTimestep::step(TIMESTEP))
-                    .with_system(apply_gravity.label("apply_gravity"))
+                    .with_run_criteria(FixedTimestep::step(self.params.dt.into()))
+                    .with_system(handle_mouse_interaction.label("handle_mouse_interaction"))
                     .with_system_set(
                         SystemSet::new()
                             .with_run_criteria(run_if_wind_enabled)
                             .with_system(apply_wind)
-                            .after("apply_gravity")
-                            .label("apply_wind"),
+                            .label("apply_wind")
+                            .after("handle_mouse_interaction"),
                     )
-                    .with_system(
-                        apply_spring_forces
-                            .after("apply_wind")
-                            .label("apply_spring_forces"),
-                    )
-                    .with_system(update_nodes.after("apply_spring_forces")),
+                    .with_system(physics_update.label("physics_update").after("apply_wind"))
+                    .with_system(render_edges.after("physics_update")),
             );
     }
 }
@@ -304,7 +285,7 @@ fn ui_side_panel(
             ui.separator();
             ui.heading("Spring coefficients");
 
-            ui.add(egui::Slider::new(&mut params.k[0], 1.0..=20.0).text("Structural k"));
+            ui.add(egui::Slider::new(&mut params.k[0], 1.0..=500.0).text("Structural k"));
             ui.add(egui::Slider::new(&mut params.k[1], 1.0..=20.0).text("Shear k"));
             ui.add(egui::Slider::new(&mut params.k[2], 1.0..=20.0).text("Flexion k"));
 
@@ -321,19 +302,13 @@ fn ui_side_panel(
         });
 }
 
-// This system applies gravity to Nodes without Pinned component
-fn apply_gravity(params: Res<Params>, mut query: Query<(&mut Force, &Mass), Without<Pinned>>) {
-    for (mut force, mass) in query.iter_mut() {
-        force.0 = Vec3::new(0.0, -params.g, 0.0) * mass.0;
-    }
-}
-
 fn apply_wind(
     windows: Res<Windows>,
+    params: Res<Params>,
     mut wind_waves: Query<(&mut WindWave, &mut Force), Without<Index>>,
     mut nodes: Query<(&Transform, &mut Force), With<Index>>,
 ) {
-    let dt = TIMESTEP as f32;
+    let dt = params.dt;
 
     let window = util::get_primary_window_size(&windows);
     for (mut wave, wave_force) in wind_waves.iter_mut() {
@@ -365,57 +340,6 @@ fn apply_wind(
     }
 }
 
-fn apply_spring_forces(
-    params: Res<Params>,
-    edges: Query<&Edge>,
-    mut nodes: Query<(&mut Transform, &mut Force, &Mass), With<Index>>,
-) {
-    for (i, edge) in edges.iter().enumerate() {
-        let [(a_pos, mut a_force, a_mass), (b_pos, mut b_force, b_mass)] =
-            nodes.many_mut([edge.a, edge.b]);
-
-        let len = (a_pos.translation - b_pos.translation).length();
-        let f = params.k[0] * -(params.r[0] - len) / (a_mass.0 + b_mass.0)
-            * ((a_pos.translation - b_pos.translation) / len);
-
-        a_force.0 -= f;
-        b_force.0 += f;
-
-        if i == 1 {
-            //println!(
-            //"{}, {}, {}, a_force: {}, {}, b_force: {}",
-            //f, len, a_pos.translation, a_force.0, b_pos.translation, b_force.0
-            //);
-
-            println!(
-                "trans: {}, b_force: {}, force: {}, len: {}",
-                b_pos.translation, b_force.0, f, len
-            );
-        }
-    }
-}
-
-// Calculates new node position based on Force component
-fn update_nodes(
-    mut set: ParamSet<(
-        Query<(&Index, &Transform)>,
-        Query<(&mut Transform, &mut PreviousPosition, &mut Force, &mut Mass), Without<Pinned>>,
-    )>,
-) {
-    let dt = TIMESTEP as f32;
-
-    for (mut pos, mut prev_pos, force, mass) in set.p1().iter_mut() {
-        let v = (pos.translation - prev_pos.0) / dt;
-        let v = v + (force.0 / mass.0) * dt;
-
-        let new_pos = pos.translation + v * dt;
-        prev_pos.0 = pos.translation;
-
-        // New pos
-        pos.translation = new_pos;
-    }
-}
-
 fn handle_keyboard_input(
     keys: Res<Input<KeyCode>>,
     params: ResMut<Params>,
@@ -440,5 +364,53 @@ fn reset_nodes_position(
         );
 
         prev_pos.0 = pos.translation.clone();
+    }
+}
+fn handle_mouse_interaction(
+    buttons: Res<Input<MouseButton>>,
+    wnds: Res<Windows>,
+    q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut nodes: Query<(&Transform, &mut Force), (With<Index>, Without<Pinned>)>,
+) {
+    if buttons.just_released(MouseButton::Left) {
+        // get the camera info and transform
+        // assuming there is exactly one main camera entity, so query::single() is OK
+        let (camera, camera_transform) = q_camera.single();
+
+        // get the window that the camera is displaying to (or the primary window)
+        let wnd = if let RenderTarget::Window(id) = camera.target {
+            wnds.get(id).unwrap()
+        } else {
+            wnds.get_primary().unwrap()
+        };
+
+        // check if the cursor is inside the window and get its position
+        if let Some(screen_pos) = wnd.cursor_position() {
+            // get the size of the window
+            let window_size = Vec2::new(wnd.width() as f32, wnd.height() as f32);
+
+            // convert screen position [0..resolution] to ndc [-1..1] (gpu coordinates)
+            let ndc = (screen_pos / window_size) * 2.0 - Vec2::ONE;
+
+            // matrix for undoing the projection and camera transform
+            let ndc_to_world =
+                camera_transform.compute_matrix() * camera.projection_matrix.inverse();
+
+            // use it to convert ndc to world-space coordinates
+            let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));
+
+            // reduce it to a 2D value
+            let world_pos: Vec2 = world_pos.truncate();
+
+            for (pos, mut force) in nodes.iter_mut() {
+                if pos.translation.truncate().distance(world_pos) < 150.0 {
+                    force.0 += Vec3::new(8000.0, 0.0, 0.0);
+
+                    println!("{}", pos.translation.truncate().distance(world_pos));
+                }
+            }
+
+            eprintln!("World coords: {}/{}", world_pos.x, world_pos.y);
+        }
     }
 }
