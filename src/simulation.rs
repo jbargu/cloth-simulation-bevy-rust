@@ -34,10 +34,11 @@ pub struct Params {
     pub num_nodes_x: usize,
     pub num_nodes_y: usize,
     pub dt: f32,
-    pub m: f32,  // default mass of the node
-    pub g: f32,  // gravity constant
-    pub r: Vec3, // rest lengths: structural, shear, flexion
-    pub k: Vec3, // spring coefficients: structural, shear, flexion
+    pub m: f32,            // default mass of the node
+    pub g: f32,            // gravity constant
+    pub mouse_force: Vec3, // mouse click will cause so much force
+    pub r: Vec3,           // rest lengths: structural, shear, flexion
+    pub k: Vec3,           // spring coefficients: structural, shear, flexion
     pub enable_wind: bool,
 }
 
@@ -366,12 +367,15 @@ fn reset_nodes_position(
     }
 }
 fn handle_mouse_interaction(
+    mut commands: Commands,
+    params: Res<Params>,
     buttons: Res<Input<MouseButton>>,
     wnds: Res<Windows>,
-    q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    mut nodes: Query<(&Transform, &mut Force), (With<Index>, Without<Pinned>)>,
+    mut edges: Query<(Entity, &Edge)>,
+    mut q_camera: Query<(&Camera, &mut GlobalTransform), With<MainCamera>>,
+    mut nodes: Query<(&Transform, &mut Force, Option<&Pinned>), With<Index>>,
 ) {
-    if buttons.pressed(MouseButton::Left) {
+    if buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Right) {
         // get the camera info and transform
         // assuming there is exactly one main camera entity, so query::single() is OK
         let (camera, camera_transform) = q_camera.single();
@@ -401,15 +405,35 @@ fn handle_mouse_interaction(
             // reduce it to a 2D value
             let world_pos: Vec2 = world_pos.truncate();
 
-            for (pos, mut force) in nodes.iter_mut() {
-                if pos.translation.truncate().distance(world_pos) < 150.0 {
-                    force.0 += Vec3::new(8000.0, 0.0, 0.0);
+            eprintln!("World coords: {}/{}", world_pos.x, world_pos.y);
 
-                    //println!("{}", pos.translation.truncate().distance(world_pos));
+            if buttons.pressed(MouseButton::Left) {
+                for (pos, mut force, pinned) in nodes.iter_mut() {
+                    if pos.translation.truncate().distance(world_pos) < 150.0 {
+                        if let None = pinned {
+                            force.0 += params.mouse_force;
+                        }
+                    }
                 }
             }
+            if buttons.pressed(MouseButton::Right) {
+                for (entity, edge) in edges.iter_mut() {
+                    let [(a_pos, _, _), (b_pos, _, _)] = nodes.many_mut([edge.a, edge.b]);
 
-            eprintln!("World coords: {}/{}", world_pos.x, world_pos.y);
+                    if a_pos.translation.truncate().distance(world_pos) <= params.r[0]
+                        || b_pos.translation.truncate().distance(world_pos) <= params.r[0]
+                    {
+                        // Remove the first matching edge - to avoid having big holes
+                        commands.entity(entity).despawn();
+                        break;
+                    }
+                }
+            }
         }
+    }
+    if buttons.pressed(MouseButton::Middle) {
+        let (_, mut camera_transform) = q_camera.single_mut();
+
+        camera_transform.translation.y -= 10.0;
     }
 }
