@@ -59,10 +59,22 @@ pub fn ui_side_panel(
             ui.heading("Wind");
             ui.checkbox(&mut params.enable_wind, "Enable wind");
 
+            ui.separator();
+            ui.heading("Mouse force");
+            ui.add(
+                egui::Slider::new(&mut params.mouse_force[0], 0.0..=25000.0)
+                    .text("Mouse force X direction"),
+            );
+
+            ui.add(
+                egui::Slider::new(&mut params.mouse_force[1], 00.0..=25000.0)
+                    .text("Mouse force Y direction"),
+            );
+
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.add(egui::Hyperlink::from_label_and_url(
                     "created by jbargu",
-                    "https://github.com/jbargu",
+                    "https://github.com/jbargu/cloth-simulation-bevy-rust",
                 ));
             });
         });

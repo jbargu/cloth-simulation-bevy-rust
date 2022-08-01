@@ -163,13 +163,13 @@ pub fn apply_wind(
             wave.rect.max.x -= window.x;
         }
 
-        wave.rect.min.y += wave_force.0.y * dt;
-        wave.rect.max.y += wave_force.0.y * dt;
+        //wave.rect.min.y += wave_force.0.y * dt;
+        //wave.rect.max.y += wave_force.0.y * dt;
 
-        if wave.rect.min.y >= window.y {
-            wave.rect.min.y += window.y;
-            wave.rect.max.y += window.y;
-        }
+        //if wave.rect.min.y >= window.y {
+        //wave.rect.min.y += window.y;
+        //wave.rect.max.y += window.y;
+        //}
 
         for (pos, mut node_force) in nodes.iter_mut() {
             if pos.translation.x >= wave.rect.min.x
