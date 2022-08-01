@@ -23,6 +23,10 @@ pub fn main() -> Result<(), String> {
             side_panel_width: 300.0,
             ..Default::default()
         }))
+        .insert_resource(WindowDescriptor {
+            fit_canvas_to_parent: true,
+            ..default()
+        })
         .run();
 
     Ok(())
