@@ -23,7 +23,6 @@ pub fn main() -> Result<(), String> {
             side_panel_width: 300.0,
             ..Default::default()
         }))
-        .add_system(bevy::input::system::exit_on_esc_system)
         .run();
 
     Ok(())

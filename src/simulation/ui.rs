@@ -87,11 +87,11 @@ pub fn handle_mouse_interaction(
     mut ev_motion: EventReader<MouseMotion>,
     mut ev_scroll: EventReader<MouseWheel>,
     mut edges: Query<(Entity, &Edge)>,
-    mut q_camera: Query<(&Camera, &mut GlobalTransform), With<MainCamera>>,
-    mut nodes: Query<(&Transform, &mut Force, Option<&Pinned>), With<Index>>,
+    mut q_camera: Query<(&Camera, &GlobalTransform, &mut Transform), With<MainCamera>>,
+    mut nodes: Query<(&Transform, &mut Force, Option<&Pinned>), (With<Index>, Without<MainCamera>)>,
 ) {
     // assuming there is exactly one main camera entity, so query::single() is OK
-    let (camera, mut camera_transform) = q_camera.single_mut();
+    let (camera, camera_global_transform, mut camera_transform) = q_camera.single_mut();
 
     if buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Right) {
         // get the window that the camera is displaying to (or the primary window)
@@ -109,9 +109,9 @@ pub fn handle_mouse_interaction(
             // convert screen position [0..resolution] to ndc [-1..1] (gpu coordinates)
             let ndc = (screen_pos / window_size) * 2.0 - Vec2::ONE;
 
-            // matrix for undoing the projection and camera transform
+            // matrix for undoing the projection and camera camera_transform
             let ndc_to_world =
-                camera_transform.compute_matrix() * camera.projection_matrix.inverse();
+                camera_global_transform.compute_matrix() * camera.projection_matrix().inverse();
 
             // use it to convert ndc to world-space coordinates
             let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));
@@ -164,7 +164,7 @@ pub fn handle_mouse_interaction(
     }
 
     if scroll.abs() > 0.0 {
-        camera_transform.scale -= scroll / 10.0;
+        camera_transform.scale -= scroll / 50.0;
         camera_transform.scale = camera_transform
             .scale
             .clamp(Vec3::splat(0.1), Vec3::splat(3.0));

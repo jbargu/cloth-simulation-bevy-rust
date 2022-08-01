@@ -1,6 +1,7 @@
 use super::util;
 use super::Params;
 use bevy::prelude::*;
+use bevy::sprite::Rect;
 
 #[derive(Component)]
 pub struct PreviousPosition(pub Vec3);
@@ -19,7 +20,7 @@ pub struct Edge {
 
 #[derive(Component)]
 pub struct WindWave {
-    pub rect: Rect<f32>,
+    pub rect: Rect,
 }
 
 #[derive(Component, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
@@ -154,27 +155,27 @@ pub fn apply_wind(
 
     let window = util::get_primary_window_size(&windows);
     for (mut wave, wave_force) in wind_waves.iter_mut() {
-        wave.rect.left += wave_force.0.x * dt;
-        wave.rect.right += wave_force.0.x * dt;
+        wave.rect.min.x += wave_force.0.x * dt;
+        wave.rect.max.x += wave_force.0.x * dt;
 
-        if wave.rect.left >= window.x {
-            wave.rect.left -= window.x;
-            wave.rect.right -= window.x;
+        if wave.rect.min.x >= window.x {
+            wave.rect.min.x -= window.x;
+            wave.rect.max.x -= window.x;
         }
 
-        wave.rect.top += wave_force.0.y * dt;
-        wave.rect.bottom += wave_force.0.y * dt;
+        wave.rect.min.y += wave_force.0.y * dt;
+        wave.rect.max.y += wave_force.0.y * dt;
 
-        if wave.rect.top >= window.y {
-            wave.rect.top += window.y;
-            wave.rect.bottom += window.y;
+        if wave.rect.min.y >= window.y {
+            wave.rect.min.y += window.y;
+            wave.rect.max.y += window.y;
         }
 
         for (pos, mut node_force) in nodes.iter_mut() {
-            if pos.translation.x >= wave.rect.left
-                && pos.translation.x <= wave.rect.right
-                && pos.translation.y >= wave.rect.bottom
-                && pos.translation.y <= wave.rect.top
+            if pos.translation.x >= wave.rect.min.x
+                && pos.translation.x <= wave.rect.max.x
+                && pos.translation.y >= wave.rect.min.y
+                && pos.translation.y <= wave.rect.max.y
             {
                 node_force.0 += wave_force.0;
             }

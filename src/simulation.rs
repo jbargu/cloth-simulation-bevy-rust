@@ -2,7 +2,8 @@ mod physics;
 mod ui;
 mod util;
 
-use bevy::{core::FixedTimestep, prelude::*};
+use bevy::sprite::Rect;
+use bevy::{prelude::*, time::FixedTimestep};
 use bevy_egui::EguiPlugin;
 use bevy_prototype_lyon::prelude::*;
 use physics::{
@@ -206,7 +207,7 @@ fn setup_camera(mut commands: Commands, windows: Res<Windows>) {
     let window = util::get_primary_window_size(&windows);
     println!("window size: {}", window);
 
-    let camera_bundle = OrthographicCameraBundle::new_2d();
+    let camera_bundle = Camera2dBundle::default();
 
     commands
         .spawn()
@@ -228,10 +229,8 @@ fn setup_wind(mut commands: Commands, windows: Res<Windows>) {
         .spawn()
         .insert(WindWave {
             rect: Rect {
-                top: 0.0,
-                left: 0.0,
-                right: window.x,
-                bottom: -1000.0,
+                min: Vec2::new(0.0, -1000.0),
+                max: Vec2::new(window.x, 0.0),
             },
         })
         .insert(Force(Vec3::new(1000.0, 0.0, 0.0)));
