@@ -3,7 +3,13 @@
 
 A simple cloth simulation using mass-spring system.
 
+https://user-images.githubusercontent.com/15074090/182155865-ce1ab0ee-e756-4235-8f66-dc007ba8451f.mp4
+
 ## Installation
+
+
+
+
 
 ```
 cargo run
