@@ -1,9 +1,10 @@
 
 # Cloth simulation in Bevy
 
-A simple cloth simulation using mass-spring system.
+A simple cloth simulation using mass-spring system. A web demo available [here](https://jbargu.github.io/cloth-simulation-bevy-rust/). It works better on desktop.
 
-https://user-images.githubusercontent.com/15074090/182155865-ce1ab0ee-e756-4235-8f66-dc007ba8451f.mp4
+https://user-images.githubusercontent.com/15074090/182217479-e97fa638-d412-4177-ab30-805e23d9150f.mp4
+
 
 ## Installation
 ```
