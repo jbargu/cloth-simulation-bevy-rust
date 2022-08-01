@@ -1,14 +1,17 @@
-use bevy::ecs::schedule::ShouldRun;
-use bevy::render::camera::RenderTarget;
-use bevy::{core::FixedTimestep, prelude::*};
-use bevy_egui::{egui, EguiContext, EguiPlugin};
-use bevy_prototype_lyon::prelude::*;
-use std::collections::HashMap;
-
 mod physics;
+mod ui;
 mod util;
 
-use physics::{physics_update, Edge, Force, Index, Mass, Pinned, PreviousPosition};
+use bevy::{core::FixedTimestep, prelude::*};
+use bevy_egui::EguiPlugin;
+use bevy_prototype_lyon::prelude::*;
+use physics::{
+    apply_wind, physics_update, Edge, Force, Index, Mass, Pinned, PreviousPosition, WindWave,
+};
+use std::collections::HashMap;
+use ui::{
+    handle_keyboard_input, handle_mouse_interaction, run_if_wind_enabled, ui_side_panel, MainCamera,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 struct FixedUpdateStage;
@@ -16,30 +19,34 @@ struct FixedUpdateStage;
 /// Array containing all nodes, addressable by inded
 struct Grid(Vec<Vec<Entity>>);
 
-#[derive(Component)]
-struct MainCamera;
-
 pub struct Simulation {
     pub params: Params,
 }
 
-#[derive(Component)]
-pub struct WindWave {
-    rect: Rect<f32>,
-}
-
 #[derive(Default, Clone, Copy)]
 pub struct Params {
+    /// if node shape is defined (circle), the circle is this big, off by default
     pub node_size: f32,
     pub num_nodes_x: usize,
     pub num_nodes_y: usize,
+    /// timestep between two physics update
     pub dt: f32,
-    pub m: f32,            // default mass of the node
-    pub g: f32,            // gravity constant
-    pub mouse_force: Vec3, // mouse click will cause so much force
-    pub r: Vec3,           // rest lengths: structural, shear, flexion
-    pub k: Vec3,           // spring coefficients: structural, shear, flexion
+    /// default mass of the node
+    pub m: f32,
+    /// gravity constant
+    pub g: f32,
+    /// mouse click will cause so much force (increase +x)
+    pub mouse_force: Vec3,
+    /// rest lengths: structural, shear (unused), flexion (unused)
+    pub r: Vec3,
+    /// spring coefficients: structural, shear (unused), flexion(unused)
+    pub k: Vec3,
+    /// velocity dampen factor between constraint solving
+    pub dampen_factor: f32,
     pub enable_wind: bool,
+
+    // UI related params
+    pub side_panel_width: f32,
 }
 
 impl Params {
@@ -169,17 +176,11 @@ impl Plugin for Simulation {
             }
         }
 
-        // Add camera
-        let camera_bundle = OrthographicCameraBundle::new_2d();
-        app.world
-            .spawn()
-            .insert_bundle(camera_bundle)
-            .insert(MainCamera);
-
-        app.insert_resource(self.params)
+        app.add_plugin(EguiPlugin)
+            .insert_resource(self.params)
             .insert_resource(Grid(grid))
+            .add_startup_system(setup_camera)
             .add_startup_system(setup_wind)
-            .add_plugin(EguiPlugin)
             .add_system(ui_side_panel)
             .add_system(handle_keyboard_input)
             .add_stage_after(
@@ -201,12 +202,22 @@ impl Plugin for Simulation {
     }
 }
 
-fn run_if_wind_enabled(params: Res<Params>) -> ShouldRun {
-    if params.enable_wind {
-        ShouldRun::Yes
-    } else {
-        ShouldRun::No
-    }
+fn setup_camera(mut commands: Commands, windows: Res<Windows>) {
+    // Add camera
+    let window = util::get_primary_window_size(&windows);
+    println!("window size: {}", window);
+
+    let camera_bundle = OrthographicCameraBundle::new_2d();
+
+    commands
+        .spawn()
+        .insert_bundle(camera_bundle)
+        .insert(MainCamera)
+        .insert(Transform::from_translation(Vec3::new(
+            window.x / 2.0 - 100.0,
+            -window.y / 2.0 + 40.0,
+            0.0,
+        )));
 }
 
 fn setup_wind(mut commands: Commands, windows: Res<Windows>) {
@@ -224,7 +235,7 @@ fn setup_wind(mut commands: Commands, windows: Res<Windows>) {
                 bottom: -1000.0,
             },
         })
-        .insert(Force(Vec3::new(200.0, 0.0, 0.0)));
+        .insert(Force(Vec3::new(600.0, 0.0, 0.0)));
 }
 
 fn render_edges(
@@ -249,110 +260,8 @@ fn render_edges(
     }
 }
 
-fn ui_side_panel(
-    mut egui_ctx: ResMut<EguiContext>,
-    mut params: ResMut<Params>,
-    query: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
-) {
-    egui::SidePanel::left("side_panel")
-        .default_width(300.0)
-        .show(egui_ctx.ctx_mut(), |ui| {
-            ui.heading("Simulation controls");
-
-            if ui.button("Reset").clicked() {
-                reset_nodes_position(&params, query);
-            }
-
-            ui.add(egui::Slider::new(&mut params.g, 0.0..=20000.0).text("gravity"));
-
-            ui.separator();
-            ui.heading("Rest lengths");
-
-            if ui
-                .add(
-                    egui::Slider::new(&mut params.r[0], 10.0..=100.0)
-                        .text("Structural rest length"),
-                )
-                .drag_released()
-            {
-                let rest_length = params.r[0];
-                params.calc_rest_lengths(rest_length);
-            }
-
-            ui.label(format!("Shear rest length: {}", params.r[1]));
-            ui.label(format!("Flexion rest length: {}", params.r[2]));
-
-            ui.separator();
-            ui.heading("Spring coefficients");
-
-            ui.add(egui::Slider::new(&mut params.k[0], 1.0..=5000.0).text("Structural k"));
-            ui.add(egui::Slider::new(&mut params.k[1], 1.0..=20.0).text("Shear k"));
-            ui.add(egui::Slider::new(&mut params.k[2], 1.0..=20.0).text("Flexion k"));
-
-            ui.separator();
-            ui.heading("Wind");
-            ui.checkbox(&mut params.enable_wind, "Enable wind");
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.add(egui::Hyperlink::from_label_and_url(
-                    "created by jbargu",
-                    "https://github.com/jbargu",
-                ));
-            });
-        });
-}
-
-fn apply_wind(
-    windows: Res<Windows>,
-    params: Res<Params>,
-    mut wind_waves: Query<(&mut WindWave, &mut Force), Without<Index>>,
-    mut nodes: Query<(&Transform, &mut Force), With<Index>>,
-) {
-    let dt = params.dt;
-
-    let window = util::get_primary_window_size(&windows);
-    for (mut wave, wave_force) in wind_waves.iter_mut() {
-        wave.rect.left += wave_force.0.x * dt;
-        wave.rect.right += wave_force.0.x * dt;
-
-        if wave.rect.left >= window.x {
-            wave.rect.left -= window.x;
-            wave.rect.right -= window.x;
-        }
-
-        wave.rect.top += wave_force.0.y * dt;
-        wave.rect.bottom += wave_force.0.y * dt;
-
-        if wave.rect.top >= window.y {
-            wave.rect.top += window.y;
-            wave.rect.bottom += window.y;
-        }
-
-        for (pos, mut node_force) in nodes.iter_mut() {
-            if pos.translation.x >= wave.rect.left
-                && pos.translation.x <= wave.rect.right
-                && pos.translation.y >= wave.rect.bottom
-                && pos.translation.y <= wave.rect.top
-            {
-                node_force.0 += wave_force.0;
-            }
-        }
-    }
-}
-
-fn handle_keyboard_input(
-    keys: Res<Input<KeyCode>>,
-    params: ResMut<Params>,
-    query: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
-) {
-    // Reset position of nodes
-    if keys.just_released(KeyCode::R) {
-        reset_nodes_position(&params, query);
-    }
-}
-
 /// Resets nodes to initial position
-fn reset_nodes_position(
+pub fn reset_nodes_position(
     params: &ResMut<Params>,
     mut query: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
 ) {
@@ -364,76 +273,5 @@ fn reset_nodes_position(
         );
 
         prev_pos.0 = pos.translation.clone();
-    }
-}
-fn handle_mouse_interaction(
-    mut commands: Commands,
-    params: Res<Params>,
-    buttons: Res<Input<MouseButton>>,
-    wnds: Res<Windows>,
-    mut edges: Query<(Entity, &Edge)>,
-    mut q_camera: Query<(&Camera, &mut GlobalTransform), With<MainCamera>>,
-    mut nodes: Query<(&Transform, &mut Force, Option<&Pinned>), With<Index>>,
-) {
-    if buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Right) {
-        // get the camera info and transform
-        // assuming there is exactly one main camera entity, so query::single() is OK
-        let (camera, camera_transform) = q_camera.single();
-
-        // get the window that the camera is displaying to (or the primary window)
-        let wnd = if let RenderTarget::Window(id) = camera.target {
-            wnds.get(id).unwrap()
-        } else {
-            wnds.get_primary().unwrap()
-        };
-
-        // check if the cursor is inside the window and get its position
-        if let Some(screen_pos) = wnd.cursor_position() {
-            // get the size of the window
-            let window_size = Vec2::new(wnd.width() as f32, wnd.height() as f32);
-
-            // convert screen position [0..resolution] to ndc [-1..1] (gpu coordinates)
-            let ndc = (screen_pos / window_size) * 2.0 - Vec2::ONE;
-
-            // matrix for undoing the projection and camera transform
-            let ndc_to_world =
-                camera_transform.compute_matrix() * camera.projection_matrix.inverse();
-
-            // use it to convert ndc to world-space coordinates
-            let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));
-
-            // reduce it to a 2D value
-            let world_pos: Vec2 = world_pos.truncate();
-
-            eprintln!("World coords: {}/{}", world_pos.x, world_pos.y);
-
-            if buttons.pressed(MouseButton::Left) {
-                for (pos, mut force, pinned) in nodes.iter_mut() {
-                    if pos.translation.truncate().distance(world_pos) < 150.0 {
-                        if let None = pinned {
-                            force.0 += params.mouse_force;
-                        }
-                    }
-                }
-            }
-            if buttons.pressed(MouseButton::Right) {
-                for (entity, edge) in edges.iter_mut() {
-                    let [(a_pos, _, _), (b_pos, _, _)] = nodes.many_mut([edge.a, edge.b]);
-
-                    if a_pos.translation.truncate().distance(world_pos) <= params.r[0]
-                        || b_pos.translation.truncate().distance(world_pos) <= params.r[0]
-                    {
-                        // Remove the first matching edge - to avoid having big holes
-                        commands.entity(entity).despawn();
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    if buttons.pressed(MouseButton::Middle) {
-        let (_, mut camera_transform) = q_camera.single_mut();
-
-        camera_transform.translation.y -= 10.0;
     }
 }

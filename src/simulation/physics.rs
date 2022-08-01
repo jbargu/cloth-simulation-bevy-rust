@@ -1,3 +1,4 @@
+use super::util;
 use super::Params;
 use bevy::prelude::*;
 
@@ -14,6 +15,11 @@ pub struct Mass(pub f32);
 pub struct Edge {
     pub a: Entity,
     pub b: Entity,
+}
+
+#[derive(Component)]
+pub struct WindWave {
+    pub rect: Rect<f32>,
 }
 
 #[derive(Component, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
@@ -45,7 +51,7 @@ pub fn physics_update(
     for _ in 0..num_steps {
         apply_gravity(&params, &mut nodes);
 
-        update_nodes(step_dt, &mut nodes);
+        update_nodes(step_dt, &params, &mut nodes);
 
         for _ in 0..3 {
             apply_spring_forces(step_dt, &params, &edges, &mut nodes);
@@ -89,46 +95,22 @@ fn apply_spring_forces(
         With<Index>,
     >,
 ) {
-    for (i, edge) in edges.iter().enumerate() {
-        let [(mut a_pos, _, mut a_force, a_mass, a_pinned), (mut b_pos, _, mut b_force, b_mass, b_pinned)] =
+    for edge in edges.iter() {
+        let [(mut a_pos, _, _, a_mass, a_pinned), (mut b_pos, _, _, b_mass, b_pinned)] =
             nodes.many_mut([edge.a, edge.b]);
 
         let difference = a_pos.translation - b_pos.translation;
         let distance = difference.length();
-
         let tension = params.r[0] - distance;
 
         let f = -(params.k[0] * tension);
 
-        //println!(
-        //"{} {} {} {} {}",
-        //a_pos.translation, difference, distance, tension, f
-        //);
         if let None = a_pinned {
-            //a_pos.translation += (f / a_mass.0) * dt * dt;
             a_pos.translation += 0.5 * -((difference / distance) * f / a_mass.0) * dt * dt;
         }
 
         if let None = b_pinned {
-            //b_force.0 -= (f / b_mass.0) * dt * dt;
             b_pos.translation += 0.5 * ((difference / distance) * f / b_mass.0) * dt * dt;
-        }
-
-        if i == params.num_nodes_x - 1 {
-            //println!(
-            //"{} {}, diff: {}, distance: {}, tension: {}, force: {}",
-            //a_pos.translation, b_pos.translation, difference, distance, tension, f
-            //);
-            //println!("{} | {} | {}", f, a_force.0, b_force.0);
-            //println!(
-            //"{}, {}, {}, a_force: {}, {}, b_force: {}",
-            //f, len, a_pos.translation, a_force.0, b_pos.translation, b_force.0
-            //);
-
-            //println!(
-            //"trans: {}, b_force: {}, force: {}, len: {}",
-            //b_pos.translation, b_force.0, f, len
-            //);
         }
     }
 }
@@ -136,6 +118,7 @@ fn apply_spring_forces(
 // Calculates new node position based on Force component
 fn update_nodes(
     dt: f32,
+    params: &Res<Params>,
     nodes: &mut Query<
         (
             &mut Transform,
@@ -148,20 +131,53 @@ fn update_nodes(
     >,
 ) {
     for (mut pos, mut prev_pos, mut force, mass, _) in nodes.iter_mut() {
-        let dampen_factor = 0.99;
-        //let v = (pos.translation - prev_pos.0) / dt;
         let a = force.0 / mass.0;
-        //let v = v * 0.3;
-        //let v = v + *dt;
 
-        //let new_pos = pos.translation + v + (force.0 / mass.0) * dt;
         let new_pos =
-            pos.translation + dampen_factor * (pos.translation - prev_pos.0) + a * dt * dt;
+            pos.translation + params.dampen_factor * (pos.translation - prev_pos.0) + a * dt * dt;
         prev_pos.0 = pos.translation;
 
         // New pos
         pos.translation = new_pos;
 
         force.0 = Vec3::ZERO;
+    }
+}
+
+pub fn apply_wind(
+    windows: Res<Windows>,
+    params: Res<Params>,
+    mut wind_waves: Query<(&mut WindWave, &mut Force), Without<Index>>,
+    mut nodes: Query<(&Transform, &mut Force), (With<Index>, Without<Pinned>)>,
+) {
+    let dt = params.dt;
+
+    let window = util::get_primary_window_size(&windows);
+    for (mut wave, wave_force) in wind_waves.iter_mut() {
+        wave.rect.left += wave_force.0.x * dt;
+        wave.rect.right += wave_force.0.x * dt;
+
+        if wave.rect.left >= window.x {
+            wave.rect.left -= window.x;
+            wave.rect.right -= window.x;
+        }
+
+        wave.rect.top += wave_force.0.y * dt;
+        wave.rect.bottom += wave_force.0.y * dt;
+
+        if wave.rect.top >= window.y {
+            wave.rect.top += window.y;
+            wave.rect.bottom += window.y;
+        }
+
+        for (pos, mut node_force) in nodes.iter_mut() {
+            if pos.translation.x >= wave.rect.left
+                && pos.translation.x <= wave.rect.right
+                && pos.translation.y >= wave.rect.bottom
+                && pos.translation.y <= wave.rect.top
+            {
+                node_force.0 += wave_force.0;
+            }
+        }
     }
 }
