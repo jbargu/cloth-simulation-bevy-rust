@@ -10,15 +10,13 @@ use physics::{
     apply_wind, physics_update, Edge, Force, Index, Mass, Pinned, PreviousPosition, WindWave,
 };
 use std::collections::HashMap;
-use ui::{
-    handle_keyboard_input, handle_mouse_interaction, run_if_wind_enabled, ui_side_panel, MainCamera,
-};
+use ui::{handle_mouse_interaction, run_if_wind_enabled, ui_side_panel, MainCamera};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 struct FixedUpdateStage;
 
 /// Array containing all nodes, addressable by inded
-struct Grid(Vec<Vec<Entity>>);
+pub struct Grid(Vec<Vec<Entity>>);
 
 pub struct Simulation {
     pub params: Params,
@@ -138,53 +136,14 @@ impl Plugin for Simulation {
             grid.push(vec);
         }
 
-        // Create edges
-        for k in 0..self.params.num_nodes_y {
-            for i in 0..self.params.num_nodes_x {
-                // Add top edge
-                if k > 0 {
-                    let line = shapes::Line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0));
-
-                    app.world
-                        .spawn()
-                        .insert(Edge {
-                            a: grid[k - 1][i],
-                            b: grid[k][i],
-                        })
-                        .insert_bundle(GeometryBuilder::build_as(
-                            &line,
-                            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 1.0)),
-                            Transform::default(),
-                        ));
-                }
-
-                // Add left edge
-                if i > 0 {
-                    let line = shapes::Line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0));
-
-                    app.world
-                        .spawn()
-                        .insert(Edge {
-                            a: grid[k][i - 1],
-                            b: grid[k][i],
-                        })
-                        .insert_bundle(GeometryBuilder::build_as(
-                            &line,
-                            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 1.0)),
-                            Transform::default(),
-                        ));
-                }
-            }
-        }
-
         app.add_plugin(EguiPlugin)
             .insert_resource(self.params)
             .insert_resource(Grid(grid))
+            .add_startup_system(setup_edges_system)
             .add_startup_system(setup_camera)
             .add_startup_system(setup_wind)
             .add_startup_system(update_canvas_size)
             .add_system(ui_side_panel)
-            .add_system(handle_keyboard_input)
             .add_stage_after(
                 CoreStage::Update,
                 FixedUpdateStage,
@@ -201,6 +160,51 @@ impl Plugin for Simulation {
                     .with_system(physics_update.label("physics_update").after("apply_wind"))
                     .with_system(render_edges.after("physics_update")),
             );
+    }
+}
+
+fn setup_edges_system(commands: Commands, params: ResMut<Params>, grid: Res<Grid>) {
+    setup_edges(commands, grid, params.num_nodes_x, params.num_nodes_y);
+}
+
+/// Creates edges between the nodes in Grid
+fn setup_edges(mut commands: Commands, grid: Res<Grid>, num_nodes_x: usize, num_nodes_y: usize) {
+    for k in 0..num_nodes_y {
+        for i in 0..num_nodes_x {
+            // Add top edge
+            if k > 0 {
+                let line = shapes::Line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0));
+
+                commands
+                    .spawn()
+                    .insert(Edge {
+                        a: grid.0[k - 1][i],
+                        b: grid.0[k][i],
+                    })
+                    .insert_bundle(GeometryBuilder::build_as(
+                        &line,
+                        DrawMode::Stroke(StrokeMode::new(Color::WHITE, 1.0)),
+                        Transform::default(),
+                    ));
+            }
+
+            // Add left edge
+            if i > 0 {
+                let line = shapes::Line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0));
+
+                commands
+                    .spawn()
+                    .insert(Edge {
+                        a: grid.0[k][i - 1],
+                        b: grid.0[k][i],
+                    })
+                    .insert_bundle(GeometryBuilder::build_as(
+                        &line,
+                        DrawMode::Stroke(StrokeMode::new(Color::WHITE, 1.0)),
+                        Transform::default(),
+                    ));
+            }
+        }
     }
 }
 
@@ -261,10 +265,13 @@ fn render_edges(
 
 /// Resets nodes to initial position
 pub fn reset_nodes_position(
+    mut commands: Commands,
     params: &ResMut<Params>,
-    mut query: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
+    grid: Res<Grid>,
+    mut edges: Query<Entity, With<Edge>>,
+    mut nodes: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
 ) {
-    for (index, mut pos, mut prev_pos) in query.iter_mut() {
+    for (index, mut pos, mut prev_pos) in nodes.iter_mut() {
         pos.translation = Vec3::new(
             index.x as f32 * params.r[0],
             -(index.y as f32 * params.r[0]),
@@ -273,6 +280,11 @@ pub fn reset_nodes_position(
 
         prev_pos.0 = pos.translation.clone();
     }
+
+    for entity in edges.iter_mut() {
+        commands.entity(entity).despawn();
+    }
+    setup_edges(commands, grid, params.num_nodes_x, params.num_nodes_y);
 }
 
 /// Make sure the canvas is full screen on web

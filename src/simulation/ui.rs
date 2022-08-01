@@ -3,7 +3,7 @@ use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy_egui::{egui, EguiContext};
 
 use super::physics::{Edge, Force, Index, Pinned, PreviousPosition};
-use super::Params;
+use super::{Grid, Params};
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 
@@ -11,9 +11,12 @@ use bevy::render::camera::RenderTarget;
 pub struct MainCamera;
 
 pub fn ui_side_panel(
+    commands: Commands,
     mut egui_ctx: ResMut<EguiContext>,
     mut params: ResMut<Params>,
-    query: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
+    grid: Res<Grid>,
+    edges: Query<Entity, With<Edge>>,
+    nodes: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
 ) {
     egui::SidePanel::right("side_panel")
         .default_width(params.side_panel_width)
@@ -28,7 +31,7 @@ pub fn ui_side_panel(
             ui.heading("Simulation controls");
 
             if ui.button("Reset").clicked() {
-                super::reset_nodes_position(&params, query);
+                super::reset_nodes_position(commands, &params, grid, edges, nodes);
             }
 
             ui.add(egui::Slider::new(&mut params.g, 0.0..=5000.0).text("gravity"));
@@ -78,17 +81,6 @@ pub fn ui_side_panel(
                 ));
             });
         });
-}
-
-pub fn handle_keyboard_input(
-    keys: Res<Input<KeyCode>>,
-    params: ResMut<Params>,
-    query: Query<(&Index, &mut Transform, &mut PreviousPosition)>,
-) {
-    // Reset position of nodes
-    if keys.just_released(KeyCode::R) {
-        super::reset_nodes_position(&params, query);
-    }
 }
 
 pub fn handle_mouse_interaction(
