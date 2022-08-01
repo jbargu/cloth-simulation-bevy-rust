@@ -10,6 +10,7 @@ bevy_ecs = "0.8.0"
 bevy = { version="0.8.0", features= ["trace"]}
 bevy_prototype_lyon = "0.6.0"
 bevy_egui = "0.15"
+web-sys = "0.3.59"
 
 [profile.dev]
 opt-level = 1

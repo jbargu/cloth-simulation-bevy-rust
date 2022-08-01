@@ -182,6 +182,7 @@ impl Plugin for Simulation {
             .insert_resource(Grid(grid))
             .add_startup_system(setup_camera)
             .add_startup_system(setup_wind)
+            .add_startup_system(update_canvas_size)
             .add_system(ui_side_panel)
             .add_system(handle_keyboard_input)
             .add_stage_after(
@@ -273,3 +274,20 @@ pub fn reset_nodes_position(
         prev_pos.0 = pos.translation.clone();
     }
 }
+
+/// Make sure the canvas is full screen on web
+#[cfg(target_arch = "wasm32")]
+fn update_canvas_size(mut windows: ResMut<Windows>) {
+    let mut update_window = || {
+        let browser_window = web_sys::window()?;
+        let window_width = browser_window.inner_width().ok()?.as_f64()?;
+        let window_height = browser_window.inner_height().ok()?.as_f64()?;
+        let window = windows.get_primary_mut()?;
+        window.set_resolution(window_width as f32, window_height as f32);
+        Some(())
+    };
+    update_window();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn update_canvas_size() {}

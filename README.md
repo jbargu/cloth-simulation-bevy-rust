@@ -6,11 +6,6 @@ A simple cloth simulation using mass-spring system.
 https://user-images.githubusercontent.com/15074090/182155865-ce1ab0ee-e756-4235-8f66-dc007ba8451f.mp4
 
 ## Installation
-
-
-
-
-
 ```
 cargo run
 ```
@@ -26,3 +21,4 @@ cargo run
  - https://www.sciencedirect.com/science/article/abs/pii/S1568494611003309?via%3Dihub
  - https://gamedevelopment.tutsplus.com/tutorials/simulate-tearable-cloth-and-ragdolls-with-simple-verlet-integration--gamedev-519
  - https://github.com/johnBuffer/ClothSimulation
+ - https://graphics.stanford.edu/~mdfisher/cloth.html
