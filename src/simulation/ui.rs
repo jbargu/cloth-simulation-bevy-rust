@@ -1,4 +1,5 @@
 use bevy::ecs::schedule::ShouldRun;
+use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy_egui::{egui, EguiContext};
 
 use super::physics::{Edge, Force, Index, Pinned, PreviousPosition};
@@ -46,8 +47,6 @@ pub fn ui_side_panel(
             ui.heading("Spring coefficients");
 
             ui.add(egui::Slider::new(&mut params.k[0], 1.0..=5000.0).text("Structural k"));
-            ui.add(egui::Slider::new(&mut params.k[1], 1.0..=20.0).text("Shear k"));
-            ui.add(egui::Slider::new(&mut params.k[2], 1.0..=20.0).text("Flexion k"));
 
             ui.separator();
             ui.heading("Wind");
@@ -78,15 +77,16 @@ pub fn handle_mouse_interaction(
     params: Res<Params>,
     buttons: Res<Input<MouseButton>>,
     wnds: Res<Windows>,
+    mut ev_motion: EventReader<MouseMotion>,
+    mut ev_scroll: EventReader<MouseWheel>,
     mut edges: Query<(Entity, &Edge)>,
     mut q_camera: Query<(&Camera, &mut GlobalTransform), With<MainCamera>>,
     mut nodes: Query<(&Transform, &mut Force, Option<&Pinned>), With<Index>>,
 ) {
-    if buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Right) {
-        // get the camera info and transform
-        // assuming there is exactly one main camera entity, so query::single() is OK
-        let (camera, camera_transform) = q_camera.single();
+    // assuming there is exactly one main camera entity, so query::single() is OK
+    let (camera, mut camera_transform) = q_camera.single_mut();
 
+    if buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Right) {
         // get the window that the camera is displaying to (or the primary window)
         let wnd = if let RenderTarget::Window(id) = camera.target {
             wnds.get(id).unwrap()
@@ -138,13 +138,33 @@ pub fn handle_mouse_interaction(
             }
         }
     }
-    if buttons.pressed(MouseButton::Middle) {
-        let (_, mut camera_transform) = q_camera.single_mut();
 
-        camera_transform.translation.y -= 10.0;
+    // Handle panning with middle mouse button
+    if buttons.pressed(MouseButton::Middle) {
+        let mut pan = Vec2::ZERO;
+        for ev in ev_motion.iter() {
+            pan += ev.delta;
+        }
+
+        camera_transform.translation.x -= 1.5 * pan.x;
+        camera_transform.translation.y += 1.5 * pan.y;
+    }
+
+    // Handle zooming in
+    let mut scroll = 0.0;
+    for ev in ev_scroll.iter() {
+        scroll += ev.y;
+    }
+
+    if scroll.abs() > 0.0 {
+        camera_transform.scale -= scroll / 10.0;
+        camera_transform.scale = camera_transform
+            .scale
+            .clamp(Vec3::splat(0.1), Vec3::splat(3.0));
     }
 }
 
+/// Triggers system if the "Enable wind" checkbox is selected
 pub fn run_if_wind_enabled(params: Res<Params>) -> ShouldRun {
     if params.enable_wind {
         ShouldRun::Yes

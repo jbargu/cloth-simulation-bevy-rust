@@ -203,7 +203,6 @@ impl Plugin for Simulation {
 }
 
 fn setup_camera(mut commands: Commands, windows: Res<Windows>) {
-    // Add camera
     let window = util::get_primary_window_size(&windows);
     println!("window size: {}", window);
 

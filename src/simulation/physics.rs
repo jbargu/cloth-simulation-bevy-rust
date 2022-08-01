@@ -45,7 +45,7 @@ pub fn physics_update(
         With<Index>,
     >,
 ) {
-    let num_steps = 5;
+    let num_steps = 4;
     let step_dt = params.dt / num_steps as f32;
 
     for _ in 0..num_steps {
