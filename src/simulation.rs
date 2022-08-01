@@ -234,7 +234,7 @@ fn setup_wind(mut commands: Commands, windows: Res<Windows>) {
                 bottom: -1000.0,
             },
         })
-        .insert(Force(Vec3::new(600.0, 0.0, 0.0)));
+        .insert(Force(Vec3::new(1000.0, 0.0, 0.0)));
 }
 
 fn render_edges(

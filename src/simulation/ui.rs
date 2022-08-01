@@ -18,13 +18,20 @@ pub fn ui_side_panel(
     egui::SidePanel::right("side_panel")
         .default_width(params.side_panel_width)
         .show(egui_ctx.ctx_mut(), |ui| {
+            ui.heading("Instructions");
+            ui.label("Hold left mouse button to exert FORCE around the area.");
+            ui.label("Hold right mouse button to REMOVE links around the area.");
+            ui.label("Hold mouse wheel to MOVE the camera.");
+            ui.label("Scroll mouse wheel to ZOOM in/out the camera.");
+
+            ui.separator();
             ui.heading("Simulation controls");
 
             if ui.button("Reset").clicked() {
                 super::reset_nodes_position(&params, query);
             }
 
-            ui.add(egui::Slider::new(&mut params.g, 0.0..=20000.0).text("gravity"));
+            ui.add(egui::Slider::new(&mut params.g, 0.0..=5000.0).text("gravity"));
 
             ui.separator();
             ui.heading("Rest lengths");

@@ -17,7 +17,7 @@ pub fn main() -> Result<(), String> {
             g: 1000.0,
             mouse_force: Vec3::new(8000.0, 0.0, 0.0),
             r: Vec3::new(20.0, 0.0, 0.0),
-            k: Vec3::new(1500.0, 1.0, 1.0),
+            k: Vec3::new(1200.0, 1.0, 1.0),
             dampen_factor: 0.99,
             enable_wind: false,
             side_panel_width: 300.0,
