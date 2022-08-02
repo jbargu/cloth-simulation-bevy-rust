@@ -5,11 +5,11 @@ mod util;
 use bevy::sprite::Rect;
 use bevy::{prelude::*, time::FixedTimestep};
 use bevy_egui::EguiPlugin;
+use bevy_prototype_debug_lines::*;
 use bevy_prototype_lyon::prelude::*;
 use physics::{
     apply_wind, physics_update, Edge, Force, Index, Mass, Pinned, PreviousPosition, WindWave,
 };
-use std::collections::HashMap;
 use ui::{handle_mouse_interaction, run_if_wind_enabled, ui_side_panel, MainCamera};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
@@ -137,6 +137,7 @@ impl Plugin for Simulation {
         }
 
         app.add_plugin(EguiPlugin)
+            .add_plugin(DebugLinesPlugin::default())
             .insert_resource(self.params)
             .insert_resource(Grid(grid))
             .add_startup_system(setup_edges_system)
@@ -157,9 +158,9 @@ impl Plugin for Simulation {
                             .label("apply_wind")
                             .after("handle_mouse_interaction"),
                     )
-                    .with_system(physics_update.label("physics_update").after("apply_wind"))
-                    .with_system(render_edges.after("physics_update")),
-            );
+                    .with_system(physics_update.label("physics_update").after("apply_wind")),
+            )
+            .add_system(render_edges.after("physics_update"));
     }
 }
 
@@ -242,24 +243,13 @@ fn setup_wind(mut commands: Commands, windows: Res<Windows>) {
 }
 
 fn render_edges(
-    mut set: ParamSet<(
-        Query<(&mut Path, &Edge)>,
-        Query<(Entity, &Transform), With<Index>>,
-    )>,
+    mut lines: ResMut<DebugLines>,
+    mut edges: Query<&Edge>,
+    mut nodes: Query<(Entity, &Transform), With<Index>>,
 ) {
-    let map: HashMap<Entity, Transform> = set
-        .p1()
-        .iter()
-        .map(|(key, value)| return (key, *value))
-        .collect();
-
-    for (mut path, edge) in set.p0().iter_mut() {
-        if let Some(a_pos) = map.get(&edge.a) {
-            if let Some(b_pos) = map.get(&edge.b) {
-                let line = shapes::Line(a_pos.translation.truncate(), b_pos.translation.truncate());
-                *path = ShapePath::build_as(&line);
-            }
-        }
+    for edge in edges.iter_mut() {
+        let [(_, a_pos), (_, b_pos)] = nodes.many_mut([edge.a, edge.b]);
+        lines.line(a_pos.translation, b_pos.translation, 0.0);
     }
 }
 
